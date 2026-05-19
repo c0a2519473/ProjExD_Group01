@@ -29,7 +29,8 @@ def create_deck():
 # -------------------------
 # CPUの行動（1枚出しのみ）
 # -------------------------
-def cpu_play(hand, field):
+# def cpu_play(hand, field):
+def cpu_play(hand, field, locked_suit):
     if len(hand) == 0:
         return None
 
@@ -66,7 +67,8 @@ def cpu_play(hand, field):
         candidates = []
         for r, g in groups.items():
             if len(g) == need and r > base_rank:
-                candidates.append(g)
+                if locked_suit is None or all(c[0] == locked_suit for c in g):
+                    candidates.append(g)
 
         if candidates:
             play = min(candidates, key=lambda g: g[0][1])
@@ -95,6 +97,9 @@ def cpu_play(hand, field):
 
     # 次に1枚出し
     valid = [c for c in hand if c[1] > base_rank]
+    #マーク縛り
+    if locked_suit is not None:
+        valid = [c for c in valid if c[0] == locked_suit]
     if valid:
         card = min(valid, key=lambda c: c[1])
         hand.remove(card)
@@ -221,6 +226,9 @@ def play_game():
         h.sort(key=lambda c: c[1])
 
     field = None
+
+    locked_suit = None #マーク縛り用
+
     message = ""
     finished = []
     selected_cards = []
@@ -269,7 +277,12 @@ def play_game():
                         if selected_cards[0][1] <= field[1]:
                             message = "弱いです"
                             continue
-
+                    
+                    if locked_suit is not None:
+                        if any(c[0] != locked_suit for c in selected_cards):
+                            message = "マーク縛り中です"
+                            continue
+                    
                     # 出す処理
                     for c in selected_cards:
                         hands[0].remove(c)
@@ -278,6 +291,20 @@ def play_game():
                         field = selected_cards[0]
                     else:
                         field = selected_cards.copy()
+
+                    #マーク縛り更新
+                    if len(selected_cards) == 1:
+                        new_suit = selected_cards[0][0]
+                    else:
+                        new_suit = selected_cards[0][0]
+
+                    #場のマークを記録
+                    if locked_suit is None:
+                        locked_suit = new_suit
+                    else:
+                        #マークが変わったら解除
+                        if new_suit != locked_suit:
+                            locked_suit = None
 
                     selected_cards.clear()
                     last_player = 0
@@ -314,7 +341,8 @@ def play_game():
 
             pg.time.wait(300)
 
-            card = cpu_play(hands[turn], field)
+            # card = cpu_play(hands[turn], field)
+            card = cpu_play(hands[turn], field, locked_suit)
             if card:
                 field = card
 
@@ -343,6 +371,7 @@ def play_game():
             message = "場が流れた！"
             turn = last_player
             pass_count = 0
+            locked_suit = None #解除
 
         # 上がり判定
         for i in range(4):
