@@ -22,10 +22,15 @@ def card_to_text(card):
     return f"{s}{r if r <= 10 else rank_name[r]}"
 
 def is_stronger(new_rank, base_rank, revolution):
+    """
+    革命時は強さが逆転するため、通常時と革命時で比較方法を変える
+     - 通常時：新しいランク > 場のランク
+     - 革命時：新しいランク < 場のランク
+     """
     if not revolution:
         return new_rank > base_rank
     else:
-        return new_rank < base_rank # 革命中は逆
+        return new_rank < base_rank # 革命中は強さが逆転
 
 def create_deck():
     deck = [(s, r) for s in suits for r in ranks]
@@ -51,11 +56,12 @@ def cpu_play(hand, field, revolution):
         multi = [g for g in groups.values() if len(g) >= 2]
         
         if multi:
+            # 複数枚出し優先（革命中は強い方を優先）
             play = (
                 min(multi, key=lambda g: g[0][1])
                 if not revolution
                 else max(multi, key=lambda g: g[0][1])
-            )# 複数枚出し優先（革命中は強い方を優先）
+            )
 
             for c in play:
                 hand.remove(c)
@@ -65,7 +71,7 @@ def cpu_play(hand, field, revolution):
             min(hand, key=lambda c: c[1])
             if not revolution
             else max(hand, key=lambda c: c[1])
-            )
+            )# 革命時の処理
         
         hand.remove(card)
         return card
@@ -102,7 +108,7 @@ def cpu_play(hand, field, revolution):
             min(valid, key=lambda c: c[1])
             if not revolution
             else max(valid, key=lambda c: c[1])
-            )# 革命中は強い方を優先
+            )# 革命時の処理
         hand.remove(card)
         return card
 
@@ -287,7 +293,7 @@ def play_game():
                     else:
                         field = selected_cards.copy()
 
-                    # 革命
+                    # 革命判定
                     if len(selected_cards) == 4:
                         revolution = not revolution
 
@@ -300,7 +306,10 @@ def play_game():
                     last_player = 0
                     pass_count = 0
                     turn = 1
-                    message = "カードを出した"
+
+                    if len(selected_cards) != 4:
+                        message = "カードを出した"
+                        
                     continue
 
                 # PASS
@@ -334,7 +343,7 @@ def play_game():
             card = cpu_play(hands[turn], field, revolution)
             if card:
                 field = card
-
+                # 革命判定
                 if isinstance(card, list) and len(card) == 4:
                     revolution = not revolution
 
