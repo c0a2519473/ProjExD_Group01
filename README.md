@@ -1,5 +1,5 @@
 # 大富豪
-
+![alt text](image.png)
 ## 実行環境の必要条件
 * python >= 3.10
 * pygame >= 2.1
