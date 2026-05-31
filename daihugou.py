@@ -6,6 +6,7 @@ import os
 pg.init()
 WIDTH, HEIGHT = 900, 600
 screen = pg.display.set_mode((WIDTH, HEIGHT))
+os.chdir(os.path.dirname(os.path.abspath(__file__)))
 pg.display.set_caption("大富豪（完全版）")
 clock = pg.time.Clock()
 
@@ -43,20 +44,44 @@ def is_straight(cards):
 
 def find_straights(hand):
     straights = []
-    hand_sorted = sorted(hand, key=lambda c: c[1])
-
-    temp = [hand_sorted[0]]
-    for i in range(1, len(hand_sorted)):
-        if hand_sorted[i][1] == hand_sorted[i - 1][1] + 1:
-            temp.append(hand_sorted[i])
+    
+    # ランクのみを抽出（重複を削除）
+    ranks_in_hand = sorted(set(c[1] for c in hand))
+    
+    if not ranks_in_hand:
+        return straights
+    
+    # ランクの連続シーケンスを見つける
+    rank_sequences = []
+    temp = [ranks_in_hand[0]]
+    for i in range(1, len(ranks_in_hand)):
+        if ranks_in_hand[i] == temp[-1] + 1:
+            temp.append(ranks_in_hand[i])
         else:
             if len(temp) >= 2:
-                straights.append(temp.copy())
-            temp = [hand_sorted[i]]
-
+                rank_sequences.append(temp.copy())
+            temp = [ranks_in_hand[i]]
+    
     if len(temp) >= 2:
-        straights.append(temp.copy())
-
+        rank_sequences.append(temp.copy())
+    
+    # 各ランクシーケンスに対して、手札からカードを選ぶ
+    for seq in rank_sequences:
+        for length in range(2, len(seq) + 1):
+            for start in range(len(seq) - length + 1):
+                sub_seq = seq[start:start + length]
+                # sub_seqのランクを持つカードを手札から1枚ずつ選ぶ
+                cards_for_seq = []
+                for rank in sub_seq:
+                    cards_with_rank = [c for c in hand if c[1] == rank]
+                    if cards_with_rank:
+                        cards_for_seq.append(cards_with_rank[0])
+                    else:
+                        break
+                
+                if len(cards_for_seq) == len(sub_seq):
+                    straights.append(cards_for_seq)
+    
     return straights
 
 
@@ -67,9 +92,15 @@ def can_play(selected, field, revolution, locked_suit):
     is_st = is_straight(selected)
     field_is_st = isinstance(field, list) and is_straight(field)
 
-    # マーク縛り中は階段禁止
-    if is_st and locked_suit is not None:
+    # マーク縛り中は階段禁止（ただし場が階段の場合は出せる）
+    if is_st and locked_suit is not None and not field_is_st:
         return False
+
+    # マーク縛り中は異なるマークのカードを出せない
+    if locked_suit is not None:
+        card_suit = selected[0][0]
+        if card_suit != locked_suit:
+            return False
 
     # 場が複数枚 or 階段
     if isinstance(field, list):
@@ -78,12 +109,11 @@ def can_play(selected, field, revolution, locked_suit):
         if field_is_st:
             if not is_st:
                 return False
-            if len(field) != len(selected):
+            if len(field) > len(selected):
                 return False
             field_ranks = sorted(c[1] for c in field)
-            max_f = field_ranks[-1]
             sel_ranks = sorted(c[1] for c in selected)
-            return sel_ranks[0] == max_f + 1
+            return is_stronger(sel_ranks[0], field_ranks[0], revolution)
 
         # 場が複数枚（同ランク）
         else:
@@ -152,11 +182,21 @@ def cpu_play(hand, field, revolution, locked_suit):
     if not legal:
         return None
 
-    # CPU 戦略：最弱の手を出す（革命中は最強）
-    if not revolution:
-        best = min(legal, key=lambda mv: max(c[1] for c in mv))
+    # 階段を見つけたら階段を優先して出す
+    straight_moves = [m for m in legal if is_straight(m)]
+    
+    if straight_moves:
+        # 階段を出す場合は最弱の階段を選ぶ（革命中は最強）
+        if not revolution:
+            best = min(straight_moves, key=lambda mv: max(c[1] for c in mv))
+        else:
+            best = max(straight_moves, key=lambda mv: min(c[1] for c in mv))
     else:
-        best = max(legal, key=lambda mv: min(c[1] for c in mv))
+        # 階段がない場合は通常の最弱の手を出す
+        if not revolution:
+            best = min(legal, key=lambda mv: max(c[1] for c in mv))
+        else:
+            best = max(legal, key=lambda mv: min(c[1] for c in mv))
 
     # 手札から削除
     for c in best:
@@ -441,31 +481,59 @@ def play_game():
                 last_player = turn
                 pass_count = 0
 
-                #8切り
-                rank = card[0][1] if isinstance(card, list) else card[1]
-
-                if rank == 8:
-                    message = f"CPU{turn} は8を出して場が流れた！" #メッセージ表示
-                    field = None
-                    locked_suit = None #マーク縛り解除
-                    pass_count = 0
-                    last_player = turn #最後に出した人の記録
-                    turn = turn #最後に出した人が次も先攻
+                # マーク縛り更新
+                new_suit = card[0][0] if isinstance(card, list) else card[0]
+                if locked_suit is None:
+                    locked_suit = new_suit
                 else:
+                    if new_suit != locked_suit:
+                        locked_suit = None
 
-                    if isinstance(card, list):
-                        text = " ".join(card_to_text(c) for c in card)
-                        message = f"CPU{turn} は {text} を出した"
+                # 階段が出ている場合は他の特殊ルールをスキップ
+                is_straight_card = isinstance(card, list) and is_straight(card)
+                
+                if is_straight_card:
+                    # 階段の場合は通常のターン進行
+                    turn = (turn + 1) % 4
+                else:
+                    # 8切り
+                    rank = card[0][1] if isinstance(card, list) else card[1]
+
+                    if rank == 8:
+                        message = f"CPU{turn} は8を出して場が流れた！" #メッセージ表示
+                        field = None
+                        locked_suit = None #マーク縛り解除
+                        pass_count = 0
+                        last_player = turn #最後に出した人の記録
+                        turn = turn #最後に出した人が次も先攻
+                    # スキップ処理
+                    elif rank == 5 or rank == 13:
+                        if isinstance(card, list) and len(card) <= 2:
+                            sk = len(card) + 1 - len(finished)
+                            message = f"CPU{turn} はスキップを出した！"
+                            turn = sk
+                        else:
+                            if isinstance(card, list):
+                                text = " ".join(card_to_text(c) for c in card)
+                                message = f"CPU{turn} は {text} を出した"
+                            else:
+                                message = f"CPU{turn} は {card_to_text(card)} を出した"
+                            turn = (turn + 1) % 4
                     else:
-                        message = f"CPU{turn} は {card_to_text(card)} を出した"
 
-                    last_player = turn
-                    pass_count = 0
+                        if isinstance(card, list):
+                            text = " ".join(card_to_text(c) for c in card)
+                            message = f"CPU{turn} は {text} を出した"
+                        else:
+                            message = f"CPU{turn} は {card_to_text(card)} を出した"
+
+                        last_player = turn
+                        pass_count = 0
+                        turn = (turn + 1) % 4
             else:
                 message = f"CPU{turn} はパスした"
                 pass_count += 1
-
-            turn = (turn + 1) % 4
+                turn = (turn + 1) % 4
 
         # 場流し
         if pass_count >= 3:
